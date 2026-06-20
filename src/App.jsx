@@ -1524,6 +1524,28 @@ function App() {
           </div>
         </div>
       )}
+
+      <footer>
+        <div className="credits-grid">
+          <div className="credit-item">
+            <span className="credit-title">Chief Developer</span>
+            <span className="credit-value">
+              <a href="https://github.com/shubha9696" target="_blank" rel="noopener noreferrer">Shubham Chakrawarti</a>
+            </span>
+          </div>
+          <div className="credit-item">
+            <span className="credit-title">AI Pair Partner</span>
+            <span className="credit-value">Antigravity AI (DeepMind)</span>
+          </div>
+          <div className="credit-item">
+            <span className="credit-title">System Stack</span>
+            <span className="credit-value">React 19 • MediaPipe • Web Audio</span>
+          </div>
+        </div>
+        <div className="footer-bottom">
+          © 2026 AeroPinch • Calibrated and Deployed via GitHub & Vercel
+        </div>
+      </footer>
     </div>
   );
 }
