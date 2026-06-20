@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 // Preset local images loaded into public/presets/
@@ -24,7 +24,7 @@ function App() {
   const [landmarkStyle, setLandmarkStyleState] = useState('neon'); // neon, minimal, hidden
 
   // Game States
-  const [board, setBoardState] = useState([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  const [, setBoardState] = useState([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   const [gameState, setGameStateState] = useState('LOBBY'); // LOBBY, PLAYING, COMPLETED
   const [moves, setMovesState] = useState(0);
   const [timer, setTimer] = useState(0);
@@ -262,7 +262,6 @@ function App() {
     let lastMoveIdx = -1;
 
     // Use Web Audio clicks during shuffling
-    let clicks = 0;
     const shuffleSteps = size === 3 ? 60 : size === 4 ? 100 : 150;
 
     for (let i = 0; i < shuffleSteps; i++) {
@@ -287,8 +286,6 @@ function App() {
 
       lastMoveIdx = emptyIdx;
       emptyIdx = nextIdx;
-
-      clicks++;
     }
     return boardCopy;
   };
@@ -915,14 +912,16 @@ function App() {
 
     initTracking();
 
+    const activeVideo = videoRef.current;
     return () => {
       if (cameraInstance) cameraInstance.stop();
       if (handsInstance) handsInstance.close();
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
-      if (videoRef.current && videoRef.current.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      if (activeVideo && activeVideo.srcObject) {
+        activeVideo.srcObject.getTracks().forEach(track => track.stop());
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
