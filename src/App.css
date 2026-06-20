@@ -764,7 +764,7 @@ input:checked + .toggle-slider:before {
 .puzzle-canvas-wrapper {
   position: relative;
   width: 100%;
-  max-width: 500px;
+  max-width: 600px;
   aspect-ratio: 1;
   border-radius: 20px;
   overflow: hidden;
@@ -797,7 +797,7 @@ input:checked + .toggle-slider:before {
   gap: 0.75rem;
   margin-top: 1.25rem;
   width: 100%;
-  max-width: 500px;
+  max-width: 600px;
 }
 
 .quick-btn {

@@ -30,12 +30,14 @@ function App() {
   const [timer, setTimer] = useState(0);
   const [userName, setUserName] = useState('');
   const [customImageName, setCustomImageName] = useState('');
-  const [, setSelectedTileIdxState] = useState(null);
-  const selectedTileIdxRef = useRef(null);
+  const [, setGrabbedTileIdxState] = useState(null);
+  const grabbedTileIdxRef = useRef(null);
+  const dragXRef = useRef(0);
+  const dragYRef = useRef(0);
 
-  const setSelectedTileIdx = (val) => {
-    selectedTileIdxRef.current = val;
-    setSelectedTileIdxState(val);
+  const setGrabbedTileIdx = (val) => {
+    grabbedTileIdxRef.current = val;
+    setGrabbedTileIdxState(val);
   };
 
   // Hand Status
@@ -333,44 +335,29 @@ function App() {
   };
 
   // Trigger swap logic
-  const handleSwap = (clickedIdx) => {
-    if (gameStateRef.current !== 'PLAYING') return;
-
+  const handleSwap = (grabbedIdx, dropIdx) => {
     const currentBoard = [...boardRef.current];
     const size = gridSizeRef.current;
-    const activeSel = selectedTileIdxRef.current;
+    const canvasW = puzzleCanvasRef.current ? puzzleCanvasRef.current.width : 600;
+    const canvasH = puzzleCanvasRef.current ? puzzleCanvasRef.current.height : 600;
 
-    if (activeSel === null) {
-      // Select the first tile
-      setSelectedTileIdx(clickedIdx);
-      playSound('pinch');
-    } else {
-      if (activeSel === clickedIdx) {
-        // Deselect if clicking the same tile
-        setSelectedTileIdx(null);
-        playSound('release');
-      } else {
-        // Swap values at clickedIdx and activeSel
-        const temp = currentBoard[activeSel];
-        currentBoard[activeSel] = currentBoard[clickedIdx];
-        currentBoard[clickedIdx] = temp;
+    const temp = currentBoard[grabbedIdx];
+    currentBoard[grabbedIdx] = currentBoard[dropIdx];
+    currentBoard[dropIdx] = temp;
 
-        setBoard(currentBoard);
-        setMoves(prev => prev + 1);
-        setSelectedTileIdx(null);
-        
-        playSound('swap');
-        spawnSwapParticles(activeSel, size, 500, 500);
-        spawnSwapParticles(clickedIdx, size, 500, 500);
+    setBoard(currentBoard);
+    setMoves(prev => prev + 1);
+    playSound('swap');
+    
+    spawnSwapParticles(grabbedIdx, size, canvasW, canvasH);
+    spawnSwapParticles(dropIdx, size, canvasW, canvasH);
 
-        // Check solved state
-        const isSolved = currentBoard.every((val, idx) => val === idx);
-        if (isSolved) {
-          setGameState('COMPLETED');
-          playSound('victory');
-          spawnVictoryParticles(500, 500);
-        }
-      }
+    // Check solved state
+    const isSolved = currentBoard.every((val, idx) => val === idx);
+    if (isSolved) {
+      setGameState('COMPLETED');
+      playSound('victory');
+      spawnVictoryParticles(canvasW, canvasH);
     }
   };
 
@@ -405,28 +392,101 @@ function App() {
     setImageSource('webcam');
   };
 
-  // Manual mouse click fallback
-  const handleCanvasClick = (e) => {
-    if (gameState !== 'PLAYING') return;
+  // Canvas coordinate normalizer
+  const getCanvasCoords = (e) => {
     const canvas = puzzleCanvasRef.current;
-    if (!canvas) return;
-
+    if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const x = ((clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((clientY - rect.top) / rect.height) * canvas.height;
+    return { x, y };
+  };
+
+  // Drag and drop mouse/touch event handlers
+  const handleMouseDown = (e) => {
+    if (gameState !== 'PLAYING') return;
+    const coords = getCanvasCoords(e);
+    if (!coords) return;
 
     const size = gridSize;
-    const col = Math.floor((clickX / rect.width) * size);
-    const row = Math.floor((clickY / rect.height) * size);
+    const canvas = puzzleCanvasRef.current;
+    const tileW = canvas.width / size;
+    const tileH = canvas.height / size;
+
+    const col = Math.floor(coords.x / tileW);
+    const row = Math.floor(coords.y / tileH);
 
     if (col >= 0 && col < size && row >= 0 && row < size) {
-      handleSwap(row * size + col);
+      const idx = row * size + col;
+      setGrabbedTileIdx(idx);
+      dragXRef.current = coords.x;
+      dragYRef.current = coords.y;
+      playSound('pinch');
     }
+  };
+
+  const handleMouseMove = (e) => {
+    if (gameState !== 'PLAYING' || grabbedTileIdxRef.current === null) return;
+    const coords = getCanvasCoords(e);
+    if (!coords) return;
+    dragXRef.current = coords.x;
+    dragYRef.current = coords.y;
+  };
+
+  const handleMouseUp = (e) => {
+    if (gameState !== 'PLAYING' || grabbedTileIdxRef.current === null) return;
+    const coords = getCanvasCoords(e) || { x: dragXRef.current, y: dragYRef.current };
+
+    const size = gridSize;
+    const canvas = puzzleCanvasRef.current;
+    const tileW = canvas.width / size;
+    const tileH = canvas.height / size;
+
+    const col = Math.floor(coords.x / tileW);
+    const row = Math.floor(coords.y / tileH);
+    const grabbedIdx = grabbedTileIdxRef.current;
+
+    if (col >= 0 && col < size && row >= 0 && row < size) {
+      const dropIdx = row * size + col;
+      if (dropIdx !== grabbedIdx) {
+        handleSwap(grabbedIdx, dropIdx);
+      } else {
+        playSound('release');
+      }
+    } else {
+      playSound('release');
+    }
+
+    setGrabbedTileIdx(null);
+  };
+
+  const handleMouseLeave = () => {
+    if (grabbedTileIdxRef.current !== null) {
+      playSound('release');
+      setGrabbedTileIdx(null);
+    }
+  };
+
+  const handleTouchStart = (e) => {
+    if (gameState === 'PLAYING') e.preventDefault();
+    handleMouseDown(e);
+  };
+
+  const handleTouchMove = (e) => {
+    if (gameState === 'PLAYING') e.preventDefault();
+    handleMouseMove(e);
+  };
+
+  const handleTouchEnd = (e) => {
+    if (gameState === 'PLAYING') e.preventDefault();
+    handleMouseUp(e);
   };
 
   // Game actions
   const handleStartGame = () => {
-    setSelectedTileIdx(null);
+    setGrabbedTileIdx(null);
     const initialBoard = Array.from({ length: gridSize * gridSize }, (_, i) => i);
     const shuffled = shuffleBoard(initialBoard, gridSize);
     setBoard(shuffled);
@@ -437,7 +497,7 @@ function App() {
   };
 
   const handleResetGame = () => {
-    setSelectedTileIdx(null);
+    setGrabbedTileIdx(null);
     const initialBoard = Array.from({ length: gridSize * gridSize }, (_, i) => i);
     setBoard(initialBoard);
     setMoves(0);
@@ -471,7 +531,7 @@ function App() {
     setLeaderboardTab(sizeKey);
     setActiveTab('leaderboard');
     setGameState('LOBBY');
-    setSelectedTileIdx(null);
+    setGrabbedTileIdx(null);
     
     // Reset board
     const initialBoard = Array.from({ length: gridSize * gridSize }, (_, i) => i);
@@ -571,9 +631,9 @@ function App() {
         previewCanvas.width = 400;
         previewCanvas.height = 300;
       }
-      if (puzzleCanvas.width !== 500) {
-        puzzleCanvas.width = 500;
-        puzzleCanvas.height = 500;
+      if (puzzleCanvas.width !== 600) {
+        puzzleCanvas.width = 600;
+        puzzleCanvas.height = 600;
       }
 
       const pCtx = previewCanvas.getContext('2d');
@@ -607,14 +667,107 @@ function App() {
       const size = gridSizeRef.current;
       const tileW = puzzleCanvas.width / size;
       const tileH = puzzleCanvas.height / size;
-      const activeSel = selectedTileIdxRef.current;
+      const grabbedIdx = grabbedTileIdxRef.current;
 
       for (let idx = 0; idx < size * size; idx++) {
         const tileValue = currentBoard[idx];
         const destX = (idx % size) * tileW;
         const destY = Math.floor(idx / size) * tileH;
 
-        // Sliced section from webcam OR static loaded image (with center-cropping to fix aspect ratio)
+        if (idx === grabbedIdx) {
+          // Draw dark placeholder with dashed outline (tile is picked up)
+          puzzleCtx.save();
+          puzzleCtx.fillStyle = '#05050f';
+          puzzleCtx.fillRect(destX, destY, tileW, tileH);
+          puzzleCtx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+          puzzleCtx.lineWidth = 1;
+          puzzleCtx.strokeRect(destX + 4, destY + 4, tileW - 8, tileH - 8);
+          // Dashed neon pink overlay
+          puzzleCtx.strokeStyle = 'rgba(255, 0, 127, 0.4)';
+          puzzleCtx.setLineDash([6, 4]);
+          puzzleCtx.lineWidth = 2.0;
+          puzzleCtx.strokeRect(destX + 2, destY + 2, tileW - 4, tileH - 4);
+          puzzleCtx.restore();
+        } else {
+          // Sliced section from webcam OR static loaded image (with center-cropping to fix aspect ratio)
+          if (imageSourceRef.current === 'webcam' || !loadedImageRef.current) {
+            const minDim = Math.min(vw, vh);
+            const srcXStart = (vw - minDim) / 2;
+            const srcYStart = (vh - minDim) / 2;
+            const sliceSize = minDim / size;
+
+            const srcX = srcXStart + (tileValue % size) * sliceSize;
+            const srcY = srcYStart + Math.floor(tileValue / size) * sliceSize;
+
+            puzzleCtx.drawImage(
+              offscreen,
+              srcX, srcY, sliceSize, sliceSize,
+              destX, destY, tileW, tileH
+            );
+          } else {
+            const img = loadedImageRef.current;
+            const W = img.naturalWidth;
+            const H = img.naturalHeight;
+            const minDim = Math.min(W, H);
+            const srcXStart = (W - minDim) / 2;
+            const srcYStart = (H - minDim) / 2;
+            const sliceSize = minDim / size;
+
+            const srcX = srcXStart + (tileValue % size) * sliceSize;
+            const srcY = srcYStart + Math.floor(tileValue / size) * sliceSize;
+
+            puzzleCtx.drawImage(
+              img,
+              srcX, srcY, sliceSize, sliceSize,
+              destX, destY, tileW, tileH
+            );
+          }
+
+          // Tile neon boundaries
+          puzzleCtx.strokeStyle = 'rgba(0, 242, 254, 0.4)';
+          puzzleCtx.lineWidth = 2.0;
+          puzzleCtx.strokeRect(destX, destY, tileW, tileH);
+
+          // Tile guides
+          puzzleCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+          puzzleCtx.fillRect(destX + 5, destY + 5, 22, 22);
+          puzzleCtx.fillStyle = '#00f2fe';
+          puzzleCtx.font = 'bold 11px "JetBrains Mono", monospace';
+          puzzleCtx.textAlign = 'center';
+          puzzleCtx.textBaseline = 'middle';
+          puzzleCtx.fillText(String(tileValue + 1), destX + 16, destY + 16);
+        }
+
+        // Ghost Hint overlay
+        if (hintModeRef.current && idx !== grabbedIdx) {
+          puzzleCtx.save();
+          puzzleCtx.fillStyle = 'rgba(157, 78, 221, 0.3)';
+          puzzleCtx.fillRect(destX, destY, tileW, tileH);
+          puzzleCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+          puzzleCtx.font = 'bold 20px "JetBrains Mono", monospace';
+          puzzleCtx.textAlign = 'center';
+          puzzleCtx.textBaseline = 'middle';
+          puzzleCtx.fillText(String(idx + 1), destX + tileW / 2, destY + tileH / 2);
+          puzzleCtx.restore();
+        }
+      }
+
+      // Draw floating grabbed tile on top of everything
+      if (grabbedIdx !== null) {
+        const tileValue = currentBoard[grabbedIdx];
+        const dragX = dragXRef.current;
+        const dragY = dragYRef.current;
+
+        puzzleCtx.save();
+        puzzleCtx.shadowBlur = 20;
+        puzzleCtx.shadowColor = 'rgba(157, 78, 221, 0.6)';
+        puzzleCtx.globalAlpha = 0.88;
+
+        // Apply scale transformation centered on dragX, dragY
+        puzzleCtx.translate(dragX, dragY);
+        puzzleCtx.scale(1.08, 1.08);
+
+        // Draw image slice centered on dragX, dragY
         if (imageSourceRef.current === 'webcam' || !loadedImageRef.current) {
           const minDim = Math.min(vw, vh);
           const srcXStart = (vw - minDim) / 2;
@@ -627,7 +780,7 @@ function App() {
           puzzleCtx.drawImage(
             offscreen,
             srcX, srcY, sliceSize, sliceSize,
-            destX, destY, tileW, tileH
+            -tileW / 2, -tileH / 2, tileW, tileH
           );
         } else {
           const img = loadedImageRef.current;
@@ -644,50 +797,26 @@ function App() {
           puzzleCtx.drawImage(
             img,
             srcX, srcY, sliceSize, sliceSize,
-            destX, destY, tileW, tileH
+            -tileW / 2, -tileH / 2, tileW, tileH
           );
         }
 
-        // Tile neon boundaries
-        puzzleCtx.strokeStyle = 'rgba(0, 242, 254, 0.4)';
-        puzzleCtx.lineWidth = 2.0;
-        puzzleCtx.strokeRect(destX, destY, tileW, tileH);
+        // Draw floating neon border
+        puzzleCtx.strokeStyle = '#9d4edd';
+        puzzleCtx.lineWidth = 3.0;
+        puzzleCtx.strokeRect(-tileW / 2, -tileH / 2, tileW, tileH);
 
-        // Highlight selected tile (Flashing neon pink border)
-        if (idx === activeSel) {
-          puzzleCtx.save();
-          puzzleCtx.fillStyle = 'rgba(255, 0, 127, 0.25)';
-          puzzleCtx.fillRect(destX, destY, tileW, tileH);
-          puzzleCtx.strokeStyle = '#ff007f';
-          puzzleCtx.lineWidth = 4.0;
-          puzzleCtx.shadowBlur = 15;
-          puzzleCtx.shadowColor = '#ff007f';
-          puzzleCtx.strokeRect(destX + 2, destY + 2, tileW - 4, tileH - 4);
-          puzzleCtx.restore();
-        }
-
-        // Tile guides
+        // Draw tile guide number
         puzzleCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        puzzleCtx.fillRect(destX + 5, destY + 5, 22, 22);
+        puzzleCtx.fillRect(-tileW / 2 + 5, -tileH / 2 + 5, 22, 22);
         puzzleCtx.fillStyle = '#00f2fe';
         puzzleCtx.font = 'bold 11px "JetBrains Mono", monospace';
         puzzleCtx.textAlign = 'center';
         puzzleCtx.textBaseline = 'middle';
-        puzzleCtx.fillText(String(tileValue + 1), destX + 16, destY + 16);
+        puzzleCtx.fillText(String(tileValue + 1), -tileW / 2 + 16, -tileH / 2 + 16);
 
-        // Ghost Hint overlay
-        if (hintModeRef.current) {
-          puzzleCtx.save();
-          puzzleCtx.fillStyle = 'rgba(157, 78, 221, 0.3)';
-          puzzleCtx.fillRect(destX, destY, tileW, tileH);
-          puzzleCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-          puzzleCtx.font = 'bold 20px "JetBrains Mono", monospace';
-          puzzleCtx.textAlign = 'center';
-          puzzleCtx.textBaseline = 'middle';
-            puzzleCtx.fillText(String(idx + 1), destX + tileW / 2, destY + tileH / 2);
-            puzzleCtx.restore();
-          }
-        }
+        puzzleCtx.restore();
+      }
 
       // Outer puzzle boundary decoration
       puzzleCtx.strokeStyle = gameStateRef.current === 'PLAYING' ? '#9d4edd' : gameStateRef.current === 'COMPLETED' ? '#ff007f' : '#00f2fe';
@@ -728,20 +857,45 @@ function App() {
           if (distance > releaseThresh) {
             hasPinchedRef.current = false;
             activePinch = false;
-            playSound('release');
+
+            // Resolve drag drop release swap
+            const grabbedIdx = grabbedTileIdxRef.current;
+            if (grabbedIdx !== null) {
+              const col = Math.floor(midX * size);
+              const row = Math.floor(midY * size);
+              if (col >= 0 && col < size && row >= 0 && row < size) {
+                const dropIdx = row * size + col;
+                if (dropIdx !== grabbedIdx) {
+                  handleSwap(grabbedIdx, dropIdx);
+                } else {
+                  playSound('release');
+                }
+              } else {
+                playSound('release');
+              }
+              setGrabbedTileIdx(null);
+            }
+          } else {
+            // Dragging: update coordinates
+            if (grabbedTileIdxRef.current !== null) {
+              dragXRef.current = cursorX;
+              dragYRef.current = cursorY;
+            }
           }
         } else {
           if (isPinchingNow && (now - lastSwapTimeRef.current > 750)) {
             hasPinchedRef.current = true;
             activePinch = true;
             lastSwapTimeRef.current = now;
-            playSound('pinch');
 
-            // Trigger grid action
             const col = Math.floor(midX * size);
             const row = Math.floor(midY * size);
             if (col >= 0 && col < size && row >= 0 && row < size) {
-              handleSwap(row * size + col);
+              const idx = row * size + col;
+              setGrabbedTileIdx(idx);
+              dragXRef.current = cursorX;
+              dragYRef.current = cursorY;
+              playSound('pinch');
             }
           }
         }
@@ -1291,7 +1445,13 @@ function App() {
               <canvas 
                 ref={puzzleCanvasRef} 
                 className="puzzle-canvas" 
-                onClick={handleCanvasClick}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseLeave}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
               />
             </div>
 
