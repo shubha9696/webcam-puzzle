@@ -30,6 +30,13 @@ function App() {
   const [timer, setTimer] = useState(0);
   const [userName, setUserName] = useState('');
   const [customImageName, setCustomImageName] = useState('');
+  const [, setSelectedTileIdxState] = useState(null);
+  const selectedTileIdxRef = useRef(null);
+
+  const setSelectedTileIdx = (val) => {
+    selectedTileIdxRef.current = val;
+    setSelectedTileIdxState(val);
+  };
 
   // Hand Status
   const [webcamReady, setWebcamReady] = useState(false);
@@ -257,35 +264,20 @@ function App() {
 
   // Shuffling logic via legal sliding moves starting from the solved state (guarantees solvability)
   const shuffleBoard = (currentBoard, size) => {
-    let boardCopy = [...currentBoard];
-    let emptyIdx = boardCopy.indexOf(size * size - 1);
-    let lastMoveIdx = -1;
-
-    // Use Web Audio clicks during shuffling
-    const shuffleSteps = size === 3 ? 60 : size === 4 ? 100 : 150;
-
-    for (let i = 0; i < shuffleSteps; i++) {
-      const r = Math.floor(emptyIdx / size);
-      const c = emptyIdx % size;
-      const candidates = [];
-
-      if (c > 0) candidates.push(emptyIdx - 1); // left
-      if (c < size - 1) candidates.push(emptyIdx + 1); // right
-      if (r > 0) candidates.push(emptyIdx - size); // up
-      if (r < size - 1) candidates.push(emptyIdx + size); // down
-
-      // Avoid immediately swapping back
-      let filtered = candidates.filter(idx => idx !== lastMoveIdx);
-      if (filtered.length === 0) filtered = candidates;
-
-      const nextIdx = filtered[Math.floor(Math.random() * filtered.length)];
-      
-      // Swap
-      boardCopy[emptyIdx] = boardCopy[nextIdx];
-      boardCopy[nextIdx] = size * size - 1;
-
-      lastMoveIdx = emptyIdx;
-      emptyIdx = nextIdx;
+    let boardCopy = Array.from({ length: size * size }, (_, i) => i);
+    // Fisher-Yates random shuffle
+    for (let i = boardCopy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const temp = boardCopy[i];
+      boardCopy[i] = boardCopy[j];
+      boardCopy[j] = temp;
+    }
+    // Ensure it's not solved initially
+    const isSolved = boardCopy.every((val, idx) => val === idx);
+    if (isSolved && boardCopy.length > 1) {
+      const temp = boardCopy[0];
+      boardCopy[0] = boardCopy[1];
+      boardCopy[1] = temp;
     }
     return boardCopy;
   };
@@ -346,30 +338,38 @@ function App() {
 
     const currentBoard = [...boardRef.current];
     const size = gridSizeRef.current;
-    const emptyIdx = currentBoard.indexOf(size * size - 1);
+    const activeSel = selectedTileIdxRef.current;
 
-    const r_click = Math.floor(clickedIdx / size);
-    const c_click = clickedIdx % size;
-    const r_empty = Math.floor(emptyIdx / size);
-    const c_empty = emptyIdx % size;
+    if (activeSel === null) {
+      // Select the first tile
+      setSelectedTileIdx(clickedIdx);
+      playSound('pinch');
+    } else {
+      if (activeSel === clickedIdx) {
+        // Deselect if clicking the same tile
+        setSelectedTileIdx(null);
+        playSound('release');
+      } else {
+        // Swap values at clickedIdx and activeSel
+        const temp = currentBoard[activeSel];
+        currentBoard[activeSel] = currentBoard[clickedIdx];
+        currentBoard[clickedIdx] = temp;
 
-    // Check if adjacent (Manhattan distance === 1)
-    if (Math.abs(r_click - r_empty) + Math.abs(c_click - c_empty) === 1) {
-      currentBoard[emptyIdx] = currentBoard[clickedIdx];
-      currentBoard[clickedIdx] = size * size - 1;
-      
-      setBoard(currentBoard);
-      setMoves(prev => prev + 1);
-      
-      playSound('swap');
-      spawnSwapParticles(clickedIdx, size, 500, 500);
+        setBoard(currentBoard);
+        setMoves(prev => prev + 1);
+        setSelectedTileIdx(null);
+        
+        playSound('swap');
+        spawnSwapParticles(activeSel, size, 500, 500);
+        spawnSwapParticles(clickedIdx, size, 500, 500);
 
-      // Check solved state
-      const isSolved = currentBoard.every((val, idx) => val === idx);
-      if (isSolved) {
-        setGameState('COMPLETED');
-        playSound('victory');
-        spawnVictoryParticles(500, 500);
+        // Check solved state
+        const isSolved = currentBoard.every((val, idx) => val === idx);
+        if (isSolved) {
+          setGameState('COMPLETED');
+          playSound('victory');
+          spawnVictoryParticles(500, 500);
+        }
       }
     }
   };
@@ -426,6 +426,7 @@ function App() {
 
   // Game actions
   const handleStartGame = () => {
+    setSelectedTileIdx(null);
     const initialBoard = Array.from({ length: gridSize * gridSize }, (_, i) => i);
     const shuffled = shuffleBoard(initialBoard, gridSize);
     setBoard(shuffled);
@@ -436,6 +437,7 @@ function App() {
   };
 
   const handleResetGame = () => {
+    setSelectedTileIdx(null);
     const initialBoard = Array.from({ length: gridSize * gridSize }, (_, i) => i);
     setBoard(initialBoard);
     setMoves(0);
@@ -469,6 +471,7 @@ function App() {
     setLeaderboardTab(sizeKey);
     setActiveTab('leaderboard');
     setGameState('LOBBY');
+    setSelectedTileIdx(null);
     
     // Reset board
     const initialBoard = Array.from({ length: gridSize * gridSize }, (_, i) => i);
@@ -604,75 +607,87 @@ function App() {
       const size = gridSizeRef.current;
       const tileW = puzzleCanvas.width / size;
       const tileH = puzzleCanvas.height / size;
-      const blankVal = size * size - 1;
+      const activeSel = selectedTileIdxRef.current;
 
       for (let idx = 0; idx < size * size; idx++) {
         const tileValue = currentBoard[idx];
         const destX = (idx % size) * tileW;
         const destY = Math.floor(idx / size) * tileH;
 
-        if (tileValue === blankVal) {
-          // Empty slot (Vaporwave dark background)
-          puzzleCtx.fillStyle = '#06060c';
-          puzzleCtx.fillRect(destX, destY, tileW, tileH);
-          puzzleCtx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
-          puzzleCtx.lineWidth = 1;
-          puzzleCtx.strokeRect(destX + 4, destY + 4, tileW - 8, tileH - 8);
+        // Sliced section from webcam OR static loaded image (with center-cropping to fix aspect ratio)
+        if (imageSourceRef.current === 'webcam' || !loadedImageRef.current) {
+          const minDim = Math.min(vw, vh);
+          const srcXStart = (vw - minDim) / 2;
+          const srcYStart = (vh - minDim) / 2;
+          const sliceSize = minDim / size;
+
+          const srcX = srcXStart + (tileValue % size) * sliceSize;
+          const srcY = srcYStart + Math.floor(tileValue / size) * sliceSize;
+
+          puzzleCtx.drawImage(
+            offscreen,
+            srcX, srcY, sliceSize, sliceSize,
+            destX, destY, tileW, tileH
+          );
         } else {
-          // Sliced section from webcam OR static loaded image
-          if (imageSourceRef.current === 'webcam' || !loadedImageRef.current) {
-            const srcW = vw / size;
-            const srcH = vh / size;
-            const srcX = (tileValue % size) * srcW;
-            const srcY = Math.floor(tileValue / size) * srcH;
+          const img = loadedImageRef.current;
+          const W = img.naturalWidth;
+          const H = img.naturalHeight;
+          const minDim = Math.min(W, H);
+          const srcXStart = (W - minDim) / 2;
+          const srcYStart = (H - minDim) / 2;
+          const sliceSize = minDim / size;
 
-            puzzleCtx.drawImage(
-              offscreen,
-              srcX, srcY, srcW, srcH,
-              destX, destY, tileW, tileH
-            );
-          } else {
-            const img = loadedImageRef.current;
-            const srcW = img.naturalWidth / size;
-            const srcH = img.naturalHeight / size;
-            const srcX = (tileValue % size) * srcW;
-            const srcY = Math.floor(tileValue / size) * srcH;
+          const srcX = srcXStart + (tileValue % size) * sliceSize;
+          const srcY = srcYStart + Math.floor(tileValue / size) * sliceSize;
 
-            puzzleCtx.drawImage(
-              img,
-              srcX, srcY, srcW, srcH,
-              destX, destY, tileW, tileH
-            );
-          }
+          puzzleCtx.drawImage(
+            img,
+            srcX, srcY, sliceSize, sliceSize,
+            destX, destY, tileW, tileH
+          );
+        }
 
-          // Tile neon boundaries
-          puzzleCtx.strokeStyle = 'rgba(0, 242, 254, 0.4)';
-          puzzleCtx.lineWidth = 2.0;
-          puzzleCtx.strokeRect(destX, destY, tileW, tileH);
+        // Tile neon boundaries
+        puzzleCtx.strokeStyle = 'rgba(0, 242, 254, 0.4)';
+        puzzleCtx.lineWidth = 2.0;
+        puzzleCtx.strokeRect(destX, destY, tileW, tileH);
 
-          // Tile guides
-          puzzleCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-          puzzleCtx.fillRect(destX + 5, destY + 5, 22, 22);
-          puzzleCtx.fillStyle = '#00f2fe';
-          puzzleCtx.font = 'bold 11px "JetBrains Mono", monospace';
+        // Highlight selected tile (Flashing neon pink border)
+        if (idx === activeSel) {
+          puzzleCtx.save();
+          puzzleCtx.fillStyle = 'rgba(255, 0, 127, 0.25)';
+          puzzleCtx.fillRect(destX, destY, tileW, tileH);
+          puzzleCtx.strokeStyle = '#ff007f';
+          puzzleCtx.lineWidth = 4.0;
+          puzzleCtx.shadowBlur = 15;
+          puzzleCtx.shadowColor = '#ff007f';
+          puzzleCtx.strokeRect(destX + 2, destY + 2, tileW - 4, tileH - 4);
+          puzzleCtx.restore();
+        }
+
+        // Tile guides
+        puzzleCtx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        puzzleCtx.fillRect(destX + 5, destY + 5, 22, 22);
+        puzzleCtx.fillStyle = '#00f2fe';
+        puzzleCtx.font = 'bold 11px "JetBrains Mono", monospace';
+        puzzleCtx.textAlign = 'center';
+        puzzleCtx.textBaseline = 'middle';
+        puzzleCtx.fillText(String(tileValue + 1), destX + 16, destY + 16);
+
+        // Ghost Hint overlay
+        if (hintModeRef.current) {
+          puzzleCtx.save();
+          puzzleCtx.fillStyle = 'rgba(157, 78, 221, 0.3)';
+          puzzleCtx.fillRect(destX, destY, tileW, tileH);
+          puzzleCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+          puzzleCtx.font = 'bold 20px "JetBrains Mono", monospace';
           puzzleCtx.textAlign = 'center';
           puzzleCtx.textBaseline = 'middle';
-          puzzleCtx.fillText(String(tileValue + 1), destX + 16, destY + 16);
-
-          // Ghost Hint overlay
-          if (hintModeRef.current) {
-            puzzleCtx.save();
-            puzzleCtx.fillStyle = 'rgba(157, 78, 221, 0.3)';
-            puzzleCtx.fillRect(destX, destY, tileW, tileH);
-            puzzleCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-            puzzleCtx.font = 'bold 20px "JetBrains Mono", monospace';
-            puzzleCtx.textAlign = 'center';
-            puzzleCtx.textBaseline = 'middle';
             puzzleCtx.fillText(String(idx + 1), destX + tileW / 2, destY + tileH / 2);
             puzzleCtx.restore();
           }
         }
-      }
 
       // Outer puzzle boundary decoration
       puzzleCtx.strokeStyle = gameStateRef.current === 'PLAYING' ? '#9d4edd' : gameStateRef.current === 'COMPLETED' ? '#ff007f' : '#00f2fe';
